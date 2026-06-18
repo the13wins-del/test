@@ -1,14 +1,3 @@
--- ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗    ██╗     ██╗██████╗
--- ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝    ██║     ██║██╔══██╗
--- ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗    ██║     ██║██████╔╝
--- ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║    ██║     ██║██╔══██╗
--- ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║    ███████╗██║██████╔╝
--- ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝    ╚══════╝╚═╝╚═════╝
---
--- NexusLib v2.0 | Enhanced UI Library with Auto Theme Changer
--- Features: Auto-cycling themes, 8 built-in themes, smooth transitions,
---           drag, notifications, toggles, sliders, dropdowns, keybinds,
---           textboxes, and persistent save/load.
 
 local Library = {}
 Library.__index = Library
@@ -215,18 +204,29 @@ local function AnimateGradient(gradient)
 end
 
 local function SaveData(filename, data)
-    if writefile then
-        pcall(function() writefile(filename, HTTP:JSONEncode(data)) end)
+    if not writefile then 
+        warn("[Nexus] writefile not supported in this executor")
+        return 
     end
+    pcall(function()
+        writefile(filename, HTTP:JSONEncode(data or {}))
+    end)
 end
 
 local function LoadData(filename)
-    if readfile and isfile and isfile(filename) then
-        local ok, data = pcall(function() return HTTP:JSONDecode(readfile(filename)) end)
-        return ok and data or {}
+    if not (readfile and isfile) then 
+        warn("[Nexus] Filesystem not fully supported")
+        return {}
     end
-    return {}
+    if not isfile(filename) then return {} end
+    local ok, data = pcall(function()
+        return HTTP:JSONDecode(readfile(filename))
+    end)
+    return ok and data or {}
 end
+
+
+
 
 -- ─────────────────────────────────────────────────────────────
 -- THEME ENGINE: tracks all themed UI objects for live recoloring
