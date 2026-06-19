@@ -1,46 +1,44 @@
 --[[
 	====================================================================
-	  OP UI LIBRARY — Custom Roblox UI Framework
+	  Fx_ScriptS — Custom Roblox UI Framework
 	====================================================================
 
-	HOW TO INSTALL:
-	  1. Create a ModuleScript in ReplicatedStorage, name it "OPUILibrary"
+	INSTALL:
+	  1. Create a ModuleScript in ReplicatedStorage named "Fx_ScriptS"
 	  2. Paste this entire file into it
 	  3. require() it from a LocalScript (see Example.lua)
+	  4. (Optional, for persistent settings) put Fx_ServerConfig.lua in
+	     ServerScriptService — see README.md
 
-	HOW TO USE (quick reference):
-	  local UILibrary = require(ReplicatedStorage.OPUILibrary)
-	  local Window = UILibrary:CreateWindow({ Title = "My Hub" })
+	QUICK USE:
+	  local Fx = require(ReplicatedStorage.Fx_ScriptS)
+	  local Window = Fx:CreateWindow({ Title = "Fx_ScriptS" })
 	  local Tab = Window:CreateTab("Main")
 	  Tab:CreateButton({ Text = "Click me", Callback = function() end })
-	  Tab:CreateToggle({ Text = "Enable", Default = false, Callback = function(state) end })
-	  Tab:CreateSlider({ Text = "Speed", Min = 0, Max = 100, Default = 16, Callback = function(v) end })
-	  Tab:CreateDropdown({ Text = "Mode", Options = {"A","B"}, Default = "A", Callback = function(v) end })
-	  Tab:CreateTextbox({ Text = "Name", Placeholder = "Type...", Callback = function(text) end })
-	  Tab:CreateKeybind({ Text = "Fly Key", Default = Enum.KeyCode.F, Callback = function(key) end })
-	  Window:Notify({ Title = "Hi", Content = "Loaded!", Duration = 3 })
 
-	All default behavior is controlled by the Library.Config table right
-	below — flip any value to true/false to enable or disable it.
+	Your avatar appears automatically in the top bar — click it to jump
+	straight to a built-in Settings tab (theme color, animation speed,
+	keybind, save/load config, etc). Everything below is the source.
 	====================================================================
 ]]
 
-local TweenService   = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local Players      = game:GetService("Players")
-local Lighting      = game:GetService("Lighting")
+local TweenService     = game:GetService("TweenService")
+local UserInputService   = game:GetService("UserInputService")
+local Players        = game:GetService("Players")
+local Lighting        = game:GetService("Lighting")
+local ReplicatedStorage  = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui  = LocalPlayer:WaitForChild("PlayerGui")
 local Camera    = workspace.CurrentCamera
 
 ----------------------------------------------------------------------
--- LIBRARY TABLE + DEFAULT CONFIG  (toggle these true/false as you like)
+-- MAIN TABLE + DEFAULT CONFIG  (toggle these true/false as you like)
 ----------------------------------------------------------------------
-local Library = {}
-Library.__index = Library
+local Fx_ScriptS = {}
+Fx_ScriptS.__index = Fx_ScriptS
 
-Library.Config = {
+Fx_ScriptS.Config = {
 	Draggable      = true,                    -- [bool] window can be dragged by its top bar
 	ToggleButton     = true,                    -- [bool] floating button that opens/closes the UI
 	ToggleKeybind     = Enum.KeyCode.RightControl,    -- [KeyCode] PC keybind that opens/closes the UI
@@ -51,15 +49,17 @@ Library.Config = {
 	StartOpen       = true,                    -- [bool] window visible immediately on load
 
 	Theme = {
-		Main      = Color3.fromRGB(22, 22, 27),
-		Secondary  = Color3.fromRGB(30, 30, 36),
-		Elevated   = Color3.fromRGB(38, 38, 45),
+		Main      = Color3.fromRGB(20, 20, 25),
+		Secondary  = Color3.fromRGB(28, 28, 34),
+		Elevated   = Color3.fromRGB(36, 36, 43),
 		Accent     = Color3.fromRGB(99, 132, 255),
 		Text      = Color3.fromRGB(235, 235, 240),
 		SubText    = Color3.fromRGB(148, 148, 160),
 		Stroke     = Color3.fromRGB(52, 52, 60),
 	}
 }
+
+local BuildSettingsTab -- forward declaration, defined near the bottom
 
 ----------------------------------------------------------------------
 -- INTERNAL HELPERS
@@ -78,7 +78,7 @@ local function New(className, props)
 end
 
 local function Tween(obj, info, props)
-	if not Library.Config.Animations then
+	if not Fx_ScriptS.Config.Animations then
 		for k, v in pairs(props) do obj[k] = v end
 		return
 	end
@@ -88,7 +88,7 @@ local function Tween(obj, info, props)
 end
 
 local function QuickTween(obj, props, time)
-	return Tween(obj, TweenInfo.new(time or Library.Config.AnimationSpeed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+	return Tween(obj, TweenInfo.new(time or Fx_ScriptS.Config.AnimationSpeed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
 end
 
 local function IsMobile()
@@ -101,11 +101,11 @@ local function GetScale()
 end
 
 local function MakeDraggable(frame, handle)
-	if not Library.Config.Draggable then return end
 	handle = handle or frame
 	local dragging, dragStart, startPos = false, nil, nil
 
 	handle.InputBegan:Connect(function(input)
+		if not Fx_ScriptS.Config.Draggable then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			dragStart = input.Position
@@ -126,32 +126,39 @@ local function MakeDraggable(frame, handle)
 	end)
 end
 
+local function GetRemotes()
+	local folder = ReplicatedStorage:FindFirstChild("Fx_ScriptS_Remotes")
+	if not folder then return nil, nil end
+	return folder:FindFirstChild("Fx_SaveConfig"), folder:FindFirstChild("Fx_LoadConfig")
+end
+
 ----------------------------------------------------------------------
 -- WINDOW CREATION
 ----------------------------------------------------------------------
-function Library:CreateWindow(settings)
+function Fx_ScriptS:CreateWindow(settings)
 	settings = settings or {}
 	for key, value in pairs(settings) do
-		if Library.Config[key] ~= nil then
-			Library.Config[key] = value
+		if Fx_ScriptS.Config[key] ~= nil then
+			Fx_ScriptS.Config[key] = value
 		end
 	end
 
-	local Theme = Library.Config.Theme
-	local Title = settings.Title or "OP UI"
-	local SubTitle = settings.SubTitle or ""
+	local Theme = Fx_ScriptS.Config.Theme
+	local Title = settings.Title or "Fx_ScriptS"
+	local SubTitle = settings.SubTitle or "v1.0"
+	local avatarUserId = settings.AvatarUserId or LocalPlayer.UserId
 	local mobile = IsMobile()
-	local scale = Library.Config.AutoDeviceSupport and GetScale() or 1
+	local scale = Fx_ScriptS.Config.AutoDeviceSupport and GetScale() or 1
 	local sidebarWidth = mobile and 90 or 130
 
 	local ScreenGui = New("ScreenGui", {
-		Name = "OPUILibrary",
+		Name = "Fx_ScriptS",
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		Parent = PlayerGui,
 	})
 
-	local WindowWidth = mobile and 380 or 560
+	local WindowWidth = mobile and 380 or 580
 	local WindowHeight = mobile and 460 or 380
 
 	local Main = New("Frame", {
@@ -192,7 +199,7 @@ function Library:CreateWindow(settings)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(16, 4),
-		Size = UDim2.new(1, -100, 0, 20),
+		Size = UDim2.new(1, -120, 0, 20),
 		Parent = TopBar,
 	})
 	New("TextLabel", {
@@ -203,9 +210,37 @@ function Library:CreateWindow(settings)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(16, 22),
-		Size = UDim2.new(1, -100, 0, 16),
+		Size = UDim2.new(1, -120, 0, 16),
 		Parent = TopBar,
 	})
+
+	-- Profile icon (your Roblox avatar — click it to jump to Settings)
+	local ProfileIcon = New("ImageButton", {
+		Name = "ProfileIcon",
+		Image = "",
+		ScaleType = Enum.ScaleType.Crop,
+		BackgroundColor3 = Theme.Secondary,
+		AutoButtonColor = false,
+		Size = UDim2.fromOffset(32, 32),
+		Position = UDim2.new(1, -78, 0, 6),
+		Parent = TopBar,
+	})
+	New("UICorner", { CornerRadius = UDim.new(1, 0), Parent = ProfileIcon })
+	local ProfileStroke = New("UIStroke", { Color = Theme.Accent, Thickness = 1.5, Parent = ProfileIcon })
+
+	task.spawn(function()
+		local ok, thumb = pcall(function()
+			return Players:GetUserThumbnailAsync(avatarUserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+		end)
+		if ok and thumb then
+			ProfileIcon.ImageTransparency = 1
+			ProfileIcon.Image = thumb
+			QuickTween(ProfileIcon, { ImageTransparency = 0 }, 0.3)
+		end
+	end)
+
+	ProfileIcon.MouseEnter:Connect(function() QuickTween(ProfileIcon, { Size = UDim2.fromOffset(35, 35) }, 0.12) end)
+	ProfileIcon.MouseLeave:Connect(function() QuickTween(ProfileIcon, { Size = UDim2.fromOffset(32, 32) }, 0.12) end)
 
 	local CloseBtn = New("TextButton", {
 		Text = "×",
@@ -253,14 +288,14 @@ function Library:CreateWindow(settings)
 
 	-- Optional background blur
 	local Blur
-	if Library.Config.BlurBackground then
+	if Fx_ScriptS.Config.BlurBackground then
 		Blur = New("BlurEffect", { Size = 0, Parent = Lighting })
 		QuickTween(Blur, { Size = 18 }, 0.3)
 	end
 
 	-- Floating open/close toggle button
 	local ToggleBtn
-	if Library.Config.ToggleButton then
+	if Fx_ScriptS.Config.ToggleButton then
 		ToggleBtn = New("TextButton", {
 			Name = "ToggleButton",
 			Text = "≡",
@@ -283,14 +318,28 @@ function Library:CreateWindow(settings)
 		Content = Content,
 		NotifyHolder = NotifyHolder,
 		Blur = Blur,
+		ToggleBtn = ToggleBtn,
 		Tabs = {},
 		ActiveTab = nil,
+		_settingsTab = nil,
 		_open = true,
 		_scale = scale,
-	}, Library)
+		_accentRefs = {},
+	}, Fx_ScriptS)
+
+	table.insert(Window._accentRefs, { instance = ProfileStroke, prop = "Color" })
+	if ToggleBtn then
+		table.insert(Window._accentRefs, { instance = ToggleBtn, prop = "BackgroundColor3" })
+	end
 
 	CloseBtn.MouseButton1Click:Connect(function()
 		Window:Close()
+	end)
+
+	ProfileIcon.MouseButton1Click:Connect(function()
+		if Window._settingsTab then
+			Window:SelectTab(Window._settingsTab)
+		end
 	end)
 
 	if ToggleBtn then
@@ -302,13 +351,13 @@ function Library:CreateWindow(settings)
 	if not mobile then
 		UserInputService.InputBegan:Connect(function(input, gpe)
 			if gpe then return end
-			if input.KeyCode == Library.Config.ToggleKeybind then
+			if input.KeyCode == Fx_ScriptS.Config.ToggleKeybind then
 				Window:Toggle()
 			end
 		end)
 	end
 
-	if Library.Config.AutoDeviceSupport then
+	if Fx_ScriptS.Config.AutoDeviceSupport then
 		Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 			local s = GetScale()
 			Window._scale = s
@@ -316,10 +365,13 @@ function Library:CreateWindow(settings)
 		end)
 	end
 
-	if not Library.Config.StartOpen then
+	if not Fx_ScriptS.Config.StartOpen then
 		Window._open = false
 		Main.Visible = false
 	end
+
+	-- Built-in Settings tab (reached via the profile icon, also listed in the sidebar)
+	BuildSettingsTab(Window)
 
 	return Window
 end
@@ -327,7 +379,7 @@ end
 ----------------------------------------------------------------------
 -- WINDOW METHODS
 ----------------------------------------------------------------------
-function Library:Toggle(force)
+function Fx_ScriptS:Toggle(force)
 	local open = (force ~= nil) and force or not self._open
 	self._open = open
 	local uiScale = self.Main:FindFirstChildOfClass("UIScale")
@@ -339,7 +391,7 @@ function Library:Toggle(force)
 			TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = self._scale }):Play()
 		end
 	else
-		if uiScale and Library.Config.Animations then
+		if uiScale and Fx_ScriptS.Config.Animations then
 			TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0 }):Play()
 			task.delay(0.18, function()
 				if not self._open then self.Main.Visible = false end
@@ -350,30 +402,85 @@ function Library:Toggle(force)
 	end
 end
 
-function Library:Open() self:Toggle(true) end
-function Library:Close() self:Toggle(false) end
+function Fx_ScriptS:Open() self:Toggle(true) end
+function Fx_ScriptS:Close() self:Toggle(false) end
 
-function Library:Destroy()
+function Fx_ScriptS:Destroy()
 	if self.Blur then self.Blur:Destroy() end
 	self.ScreenGui:Destroy()
+end
+
+function Fx_ScriptS:SetAccent(color)
+	Fx_ScriptS.Config.Theme.Accent = color
+	for _, ref in ipairs(self._accentRefs) do
+		if ref.instance and ref.instance.Parent then
+			QuickTween(ref.instance, { [ref.prop] = color }, 0.2)
+		end
+	end
+end
+
+function Fx_ScriptS:SaveConfig()
+	local saveEvent = GetRemotes()
+	if not saveEvent then
+		self:Notify({ Title = "Config", Content = "Server storage not found. Add Fx_ServerConfig.lua to ServerScriptService.", Duration = 4 })
+		return
+	end
+	local c = Fx_ScriptS.Config
+	saveEvent:FireServer({
+		AccentR = c.Theme.Accent.R, AccentG = c.Theme.Accent.G, AccentB = c.Theme.Accent.B,
+		AnimationSpeed = c.AnimationSpeed,
+		Animations = c.Animations,
+		BlurBackground = c.BlurBackground,
+		Draggable = c.Draggable,
+		ToggleButton = c.ToggleButton,
+		ToggleKeybind = c.ToggleKeybind.Name,
+	})
+	self:Notify({ Title = "Config", Content = "Settings saved!", Duration = 2 })
+end
+
+function Fx_ScriptS:LoadConfig()
+	local _, loadFn = GetRemotes()
+	if not loadFn then
+		self:Notify({ Title = "Config", Content = "Server storage not found. Add Fx_ServerConfig.lua to ServerScriptService.", Duration = 4 })
+		return
+	end
+	local ok, data = pcall(function() return loadFn:InvokeServer() end)
+	if not ok or not data then
+		self:Notify({ Title = "Config", Content = "No saved settings found.", Duration = 3 })
+		return
+	end
+	local c = Fx_ScriptS.Config
+	if data.AccentR then self:SetAccent(Color3.new(data.AccentR, data.AccentG, data.AccentB)) end
+	if data.AnimationSpeed then c.AnimationSpeed = data.AnimationSpeed end
+	if data.Animations ~= nil then c.Animations = data.Animations end
+	if data.BlurBackground ~= nil then c.BlurBackground = data.BlurBackground end
+	if data.Draggable ~= nil then c.Draggable = data.Draggable end
+	if data.ToggleButton ~= nil then c.ToggleButton = data.ToggleButton end
+	if data.ToggleKeybind then
+		local ok2, kc = pcall(function() return Enum.KeyCode[data.ToggleKeybind] end)
+		if ok2 and kc then c.ToggleKeybind = kc end
+	end
+	self:Notify({ Title = "Config", Content = "Settings loaded!", Duration = 2 })
 end
 
 ----------------------------------------------------------------------
 -- TABS
 ----------------------------------------------------------------------
-function Library:CreateTab(name, icon)
-	local Theme = Library.Config.Theme
+function Fx_ScriptS:CreateTab(name, icon, _internal)
+	local Theme = Fx_ScriptS.Config.Theme
 	local mobile = IsMobile()
+	local order = _internal and 1000 or #self.Tabs
 
 	local TabButton = New("TextButton", {
 		Name = name .. "_TabBtn",
 		Text = (icon and (icon .. "  ") or "") .. name,
 		Font = Enum.Font.GothamMedium,
 		TextSize = mobile and 13 or 14,
-		TextColor3 = Theme.SubText,
+		TextColor3 = Theme.Text,
 		BackgroundColor3 = Theme.Accent,
 		BackgroundTransparency = 1,
 		AutoButtonColor = false,
+		LayoutOrder = order,
 		Size = UDim2.new(1, 0, 0, 34),
 		Parent = self.Sidebar,
 	})
@@ -404,9 +511,10 @@ function Library:CreateTab(name, icon)
 		Button = TabButton,
 		Content = TabContent,
 		ContentScale = ContentScale,
-	}, { __index = Library })
+	}, { __index = Fx_ScriptS })
 
 	table.insert(self.Tabs, Tab)
+	table.insert(self._accentRefs, { instance = TabButton, prop = "BackgroundColor3" })
 
 	TabButton.MouseButton1Click:Connect(function()
 		self:SelectTab(Tab)
@@ -418,14 +526,16 @@ function Library:CreateTab(name, icon)
 		if self.ActiveTab ~= Tab then QuickTween(TabButton, { BackgroundTransparency = 1 }, 0.15) end
 	end)
 
-	if not self.ActiveTab then
+	if _internal then
+		self._settingsTab = Tab
+	elseif not self.ActiveTab then
 		self:SelectTab(Tab)
 	end
 
 	return Tab
 end
 
-function Library:SelectTab(tab)
+function Fx_ScriptS:SelectTab(tab)
 	for _, t in ipairs(self.Tabs) do
 		t.Content.Visible = false
 		QuickTween(t.Button, { BackgroundTransparency = 1 }, 0.15)
@@ -441,8 +551,8 @@ end
 ----------------------------------------------------------------------
 -- ELEMENTS  (call these on a Tab, e.g. MyTab:CreateButton{...})
 ----------------------------------------------------------------------
-function Library:CreateSection(text)
-	local Theme = Library.Config.Theme
+function Fx_ScriptS:CreateSection(text)
+	local Theme = Fx_ScriptS.Config.Theme
 	return New("TextLabel", {
 		Text = text or "Section",
 		Font = Enum.Font.GothamBold,
@@ -455,8 +565,8 @@ function Library:CreateSection(text)
 	})
 end
 
-function Library:CreateLabel(text)
-	local Theme = Library.Config.Theme
+function Fx_ScriptS:CreateLabel(text)
+	local Theme = Fx_ScriptS.Config.Theme
 	return New("TextLabel", {
 		Text = text or "",
 		Font = Enum.Font.Gotham,
@@ -471,9 +581,9 @@ function Library:CreateLabel(text)
 	})
 end
 
-function Library:CreateButton(opts)
+function Fx_ScriptS:CreateButton(opts)
 	opts = opts or {}
-	local Theme = Library.Config.Theme
+	local Theme = Fx_ScriptS.Config.Theme
 
 	local Btn = New("TextButton", {
 		Text = opts.Text or "Button",
@@ -499,9 +609,9 @@ function Library:CreateButton(opts)
 	return { Instance = Btn }
 end
 
-function Library:CreateToggle(opts)
+function Fx_ScriptS:CreateToggle(opts)
 	opts = opts or {}
-	local Theme = Library.Config.Theme
+	local Theme = Fx_ScriptS.Config.Theme
 	local state = opts.Default or false
 
 	local Holder = New("Frame", { BackgroundColor3 = Theme.Elevated, Size = UDim2.new(1, 0, 0, 36), Parent = self.Content })
@@ -546,9 +656,9 @@ function Library:CreateToggle(opts)
 	}
 end
 
-function Library:CreateSlider(opts)
+function Fx_ScriptS:CreateSlider(opts)
 	opts = opts or {}
-	local Theme = Library.Config.Theme
+	local Theme = Fx_ScriptS.Config.Theme
 	local min, max = opts.Min or 0, opts.Max or 100
 	local value = math.clamp(opts.Default or min, min, max)
 
@@ -578,6 +688,7 @@ function Library:CreateSlider(opts)
 
 	local Fill = New("Frame", { Size = UDim2.new((value - min) / (max - min), 0, 1, 0), BackgroundColor3 = Theme.Accent, Parent = Track })
 	New("UICorner", { CornerRadius = UDim.new(1, 0), Parent = Fill })
+	table.insert(self.Window._accentRefs, { instance = Fill, prop = "BackgroundColor3" })
 
 	local Knob = New("Frame", {
 		Size = UDim2.fromOffset(14, 14), AnchorPoint = Vector2.new(0.5, 0.5),
@@ -626,9 +737,9 @@ function Library:CreateSlider(opts)
 	}
 end
 
-function Library:CreateDropdown(opts)
+function Fx_ScriptS:CreateDropdown(opts)
 	opts = opts or {}
-	local Theme = Library.Config.Theme
+	local Theme = Fx_ScriptS.Config.Theme
 	local options = opts.Options or {}
 	local selected = opts.Default or options[1]
 	local open = false
@@ -697,9 +808,9 @@ function Library:CreateDropdown(opts)
 	}
 end
 
-function Library:CreateTextbox(opts)
+function Fx_ScriptS:CreateTextbox(opts)
 	opts = opts or {}
-	local Theme = Library.Config.Theme
+	local Theme = Fx_ScriptS.Config.Theme
 
 	local Holder = New("Frame", { BackgroundColor3 = Theme.Elevated, Size = UDim2.new(1, 0, 0, 36), Parent = self.Content })
 	New("UICorner", { CornerRadius = UDim.new(0, 8), Parent = Holder })
@@ -726,9 +837,9 @@ function Library:CreateTextbox(opts)
 	}
 end
 
-function Library:CreateKeybind(opts)
+function Fx_ScriptS:CreateKeybind(opts)
 	opts = opts or {}
-	local Theme = Library.Config.Theme
+	local Theme = Fx_ScriptS.Config.Theme
 	local current = opts.Default or Enum.KeyCode.Unknown
 	local listening = false
 
@@ -776,9 +887,9 @@ end
 ----------------------------------------------------------------------
 -- NOTIFICATIONS
 ----------------------------------------------------------------------
-function Library:Notify(opts)
+function Fx_ScriptS:Notify(opts)
 	opts = opts or {}
-	local Theme = Library.Config.Theme
+	local Theme = Fx_ScriptS.Config.Theme
 	local duration = opts.Duration or 3
 
 	local Notif = New("Frame", {
@@ -812,4 +923,102 @@ function Library:Notify(opts)
 	end)
 end
 
-return Library
+----------------------------------------------------------------------
+-- BUILT-IN SETTINGS TAB  (reached via the profile icon)
+----------------------------------------------------------------------
+BuildSettingsTab = function(Window)
+	local tab = Window:CreateTab("Settings", "⚙️", true)
+
+	tab:CreateSection("Account")
+	tab:CreateLabel("Signed in as " .. LocalPlayer.DisplayName .. " (@" .. LocalPlayer.Name .. ")")
+
+	tab:CreateSection("Appearance")
+
+	-- color swatches auto-arrange into a clean grid
+	local SwatchHolder = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 76), Parent = tab.Content })
+	New("UIGridLayout", {
+		CellSize = UDim2.fromOffset(34, 34),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = SwatchHolder,
+	})
+	local Palette = {
+		Color3.fromRGB(99, 132, 255), Color3.fromRGB(255, 99, 154),
+		Color3.fromRGB(99, 255, 170), Color3.fromRGB(255, 196, 99),
+		Color3.fromRGB(190, 99, 255), Color3.fromRGB(255, 99, 99),
+	}
+	for _, color in ipairs(Palette) do
+		local Swatch = New("TextButton", { Text = "", BackgroundColor3 = color, Size = UDim2.fromOffset(34, 34), Parent = SwatchHolder })
+		New("UICorner", { CornerRadius = UDim.new(1, 0), Parent = Swatch })
+		Swatch.MouseButton1Click:Connect(function() Window:SetAccent(color) end)
+		Swatch.MouseEnter:Connect(function() QuickTween(Swatch, { Size = UDim2.fromOffset(38, 38) }, 0.12) end)
+		Swatch.MouseLeave:Connect(function() QuickTween(Swatch, { Size = UDim2.fromOffset(34, 34) }, 0.12) end)
+	end
+
+	tab:CreateSlider({
+		Text = "Animation Speed",
+		Min = 10, Max = 50, Default = math.floor(Fx_ScriptS.Config.AnimationSpeed * 100),
+		Callback = function(v) Fx_ScriptS.Config.AnimationSpeed = v / 100 end,
+	})
+
+	tab:CreateToggle({
+		Text = "Animations",
+		Default = Fx_ScriptS.Config.Animations,
+		Callback = function(state) Fx_ScriptS.Config.Animations = state end,
+	})
+
+	tab:CreateToggle({
+		Text = "Background Blur",
+		Default = Fx_ScriptS.Config.BlurBackground,
+		Callback = function(state)
+			Fx_ScriptS.Config.BlurBackground = state
+			if state and not Window.Blur then
+				Window.Blur = New("BlurEffect", { Size = 0, Parent = Lighting })
+				QuickTween(Window.Blur, { Size = 18 }, 0.3)
+			elseif not state and Window.Blur then
+				local oldBlur = Window.Blur
+				Window.Blur = nil
+				QuickTween(oldBlur, { Size = 0 }, 0.3)
+				task.delay(0.3, function() oldBlur:Destroy() end)
+			end
+		end,
+	})
+
+	tab:CreateToggle({
+		Text = "Window Draggable",
+		Default = Fx_ScriptS.Config.Draggable,
+		Callback = function(state) Fx_ScriptS.Config.Draggable = state end,
+	})
+
+	tab:CreateToggle({
+		Text = "Show Floating Button",
+		Default = Fx_ScriptS.Config.ToggleButton,
+		Callback = function(state)
+			Fx_ScriptS.Config.ToggleButton = state
+			if Window.ToggleBtn then Window.ToggleBtn.Visible = state end
+		end,
+	})
+
+	tab:CreateSection("Keybind")
+	tab:CreateKeybind({
+		Text = "Open / Close Key",
+		Default = Fx_ScriptS.Config.ToggleKeybind,
+		Callback = function(kc) Fx_ScriptS.Config.ToggleKeybind = kc end,
+	})
+
+	tab:CreateSection("Config")
+	tab:CreateButton({ Text = "💾  Save Settings", Callback = function() Window:SaveConfig() end })
+	tab:CreateButton({ Text = "📂  Load Settings", Callback = function() Window:LoadConfig() end })
+	tab:CreateButton({
+		Text = "↺  Reset to Default",
+		Callback = function()
+			Window:SetAccent(Color3.fromRGB(99, 132, 255))
+			Fx_ScriptS.Config.AnimationSpeed = 0.22
+			Fx_ScriptS.Config.Animations = true
+			Fx_ScriptS.Config.Draggable = true
+			Window:Notify({ Title = "Config", Content = "Reset to defaults.", Duration = 2 })
+		end,
+	})
+end
+
+return Fx_ScriptS
